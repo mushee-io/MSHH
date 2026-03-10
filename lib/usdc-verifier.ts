@@ -4,7 +4,7 @@ import {
   http,
   parseAbiItem,
   parseUnits,
-  type Hash
+  type Hash,
 } from "viem";
 import { polygon } from "viem/chains";
 
@@ -18,64 +18,67 @@ const transferEvent = parseAbiItem(
 
 const client = createPublicClient({
   chain: polygon,
-  transport: http(rpcUrl)
+  transport: http(rpcUrl),
 });
 
-export async function verifyUsdcPayment(input: {
+export async function verifyUsdcPayment({
+  txHash,
+  from,
+  expectedAmount,
+}: {
   txHash: `0x${string}`;
   from: string;
   expectedAmount: string;
 }) {
-  try {
-    if (!usdcContract || !treasuryAddress) {
-      return { ok: false, reason: "USDC contract or treasury address missing" };
-    }
-
-    const normalizedFrom = getAddress(input.from);
-    const normalizedContract = getAddress(usdcContract);
-    const normalizedTreasury = getAddress(treasuryAddress);
-    const expected = parseUnits(input.expectedAmount, 6);
-
-    const receipt = await client.getTransactionReceipt({
-      hash: input.txHash as Hash
-    });
-
-    if (receipt.status !== "success") {
-      return { ok: false, reason: "Transaction failed" };
-    }
-
-    const logs = await client.getLogs({
-      address: normalizedContract,
-      event: transferEvent,
-      fromBlock: receipt.blockNumber,
-      toBlock: receipt.blockNumber
-    });
-
-    const match = logs.find((log) => {
-      const args = log.args as { from?: string; to?: string; value?: bigint };
-      if (!args.from || !args.to || typeof args.value === "undefined") return false;
-
-      return (
-        log.transactionHash?.toLowerCase() === input.txHash.toLowerCase() &&
-        getAddress(args.from) === normalizedFrom &&
-        getAddress(args.to) === normalizedTreasury &&
-        args.value >= expected
-      );
-    });
-
-    if (!match) {
-      return { ok: false, reason: "No valid USDC transfer to treasury found" };
-    }
-
-    const amount = (match.args as { value?: bigint }).value?.toString() || expected.toString();
-
-    return {
-      ok: true,
-      txHash: input.txHash,
-      blockNumber: receipt.blockNumber.toString(),
-      amount
-    };
-  } catch (error) {
-    return { ok: false, reason: "Verification failed" };
+  if (!usdcContract || !treasuryAddress) {
+    return { ok: false, reason: "Missing USDC_CONTRACT or TREASURY_ADDRESS" };
   }
+
+  const normalizedFrom = getAddress(from);
+  const normalizedTreasury = getAddress(treasuryAddress);
+  const normalizedUsdc = getAddress(usdcContract);
+  const expected = parseUnits(expectedAmount, 6);
+
+  const receipt = await client.getTransactionReceipt({
+    hash: txHash as Hash,
+  });
+
+  if (receipt.status !== "success") {
+    return { ok: false, reason: "Transaction failed" };
+  }
+
+  const logs = await client.getLogs({
+    address: normalizedUsdc,
+    event: transferEvent,
+    fromBlock: receipt.blockNumber,
+    toBlock: receipt.blockNumber,
+  });
+
+  const matched = logs.find((log) => {
+    const args = log.args as {
+      from?: string;
+      to?: string;
+      value?: bigint;
+    };
+
+    if (!args.from || !args.to || args.value == null) return false;
+
+    return (
+      getAddress(args.from) === normalizedFrom &&
+      getAddress(args.to) === normalizedTreasury &&
+      args.value >= expected &&
+      (log.transactionHash || "").toLowerCase() === txHash.toLowerCase()
+    );
+  });
+
+  if (!matched) {
+    return { ok: false, reason: "No valid USDC transfer to treasury found" };
+  }
+
+  return {
+    ok: true,
+    amount: matched.args.value?.toString() || expected.toString(),
+    txHash,
+    blockNumber: receipt.blockNumber.toString(),
+  };
 }
