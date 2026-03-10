@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyUsdcPayment } from "@/lib/usdc-verifier";
+import { verifyUsdcPayment } from "../../../lib/usdc-verifier";
 
 export async function POST(req: Request) {
   try {
@@ -15,15 +15,21 @@ export async function POST(req: Request) {
     const result = await verifyUsdcPayment({
       txHash,
       from: wallet,
-      expectedAmount: amount || process.env.RUN_PROMPT_PRICE_USDC || "0.0001"
+      expectedAmount: amount || process.env.RUN_PROMPT_PRICE_USDC || "0.0001",
     });
 
     if (!result.ok) {
-      return NextResponse.json({ ok: false, error: result.reason }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: result.reason },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({ ok: true, payment: result });
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: "Verification failed" }, { status: 500 });
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Verification failed" },
+      { status: 500 }
+    );
   }
 }
