@@ -1,34 +1,37 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { getSupabaseAdmin } from "../../../lib/supabase-admin";
 
 export async function POST(req: Request) {
   try {
-    const { sender, receiver, amount, txHash } = await req.json();
+    const { sender, receiver, amount, txHash, message } = await req.json();
 
-    if (!sender || !receiver || !amount) {
+    if (!sender || !receiver || !amount || !txHash) {
       return NextResponse.json(
-        { ok: false, error: "sender, receiver, and amount are required" },
+        { ok: false, error: "sender, receiver, amount and txHash are required" },
         { status: 400 }
       );
     }
 
     const supabase = getSupabaseAdmin();
+
     if (supabase) {
       await supabase.from("tips").insert({
         sender,
         receiver,
         amount,
-        tx_hash: txHash || null,
-        status: "recorded"
+        tx_hash: txHash,
+        message: message || null,
       });
     }
 
     return NextResponse.json({
       ok: true,
       message: "Tip recorded successfully",
-      tip: { sender, receiver, amount, txHash: txHash || null }
     });
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: "Tip failed" }, { status: 500 });
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Failed to record tip" },
+      { status: 500 }
+    );
   }
 }
