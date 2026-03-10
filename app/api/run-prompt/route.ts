@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { verifyUsdcPayment } from "@/lib/usdc-verifier";
+import { getSupabaseAdmin } from "../../../lib/supabase-admin";
+import { verifyUsdcPayment } from "../../../lib/usdc-verifier";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
+const PRICE = process.env.RUN_PROMPT_PRICE_USDC || "0.0001";
 
 export async function POST(req: Request) {
   try {
@@ -11,24 +12,15 @@ export async function POST(req: Request) {
 
     if (!prompt || !wallet || !txHash) {
       return NextResponse.json(
-        { ok: false, error: "prompt, wallet, and txHash are required" },
+        { ok: false, error: "prompt, wallet and txHash are required" },
         { status: 400 }
       );
     }
 
-    if (!GEMINI_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "Missing GEMINI_API_KEY" },
-        { status: 500 }
-      );
-    }
-
-    const price = process.env.RUN_PROMPT_PRICE_USDC || "0.0001";
-
     const payment = await verifyUsdcPayment({
       txHash,
       from: wallet,
-      expectedAmount: price
+      expectedAmount: PRICE,
     });
 
     if (!payment.ok) {
@@ -44,50 +36,51 @@ export async function POST(req: Request) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [{ text: prompt }]
-            }
-          ]
-        })
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
       }
     );
 
-    const raw = await response.json();
+    const data = await response.json();
+
     const text =
-      raw?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("\n") ||
-      "No text returned";
+      data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("\n") ||
+      "";
 
     const supabase = getSupabaseAdmin();
+
     if (supabase) {
       await supabase.from("payments").insert({
         wallet,
-        amount: price,
+        amount: PRICE,
         token: "USDC",
         tx_hash: txHash,
-        status: "verified"
+        status: "verified",
       });
 
       await supabase.from("prompt_runs").insert({
         wallet,
         prompt,
-        cost: price,
+        cost: PRICE,
         tx_hash: txHash,
-        status: "success"
+        status: "success",
       });
     }
 
     return NextResponse.json({
       ok: true,
       wallet,
+      price: PRICE,
       txHash,
-      price,
       result: {
         text,
-        raw
-      }
+        raw: data,
+      },
     });
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: "AI request failed" }, { status: 500 });
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "AI request failed" },
+      { status: 500 }
+    );
   }
 }
